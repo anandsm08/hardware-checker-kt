@@ -1,6 +1,6 @@
 # hardware-checker-kt
 An android app to find about your device. 
- ##Features:
+## Features:
  1. Battery Info
  2. Memory and Storage Info
  3. Camera 
