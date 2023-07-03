@@ -12,9 +12,10 @@ import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioRecord
+import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.RingtoneManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.NetworkInfo
@@ -24,12 +25,16 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
 import android.telephony.TelephonyManager
+import android.view.View
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.example.hardwarechecker.databinding.ActivityMainBinding
+import java.io.IOException
 
 @Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
@@ -45,7 +50,9 @@ class MainActivity : AppCompatActivity() {
         val soundButton: Button = viewBinding.soundButton
         val networkButton: Button = viewBinding.networkButton
         val cameraButton: Button = viewBinding.cameraButton
+       // val clickButton: Button = viewBinding.clickButton
         val sensorButton: Button = viewBinding.sensorsButton
+        val screenButton: Button = viewBinding.screenButton
         viewBinding.resultTextView
         batteryButton.setOnClickListener {
             clearTextView()
@@ -59,6 +66,9 @@ class MainActivity : AppCompatActivity() {
             clearTextView()
             checkCamera()
         }
+//        clickButton.setOnClickListener {
+//            val intent = Intent(this,ImageActivity::class.java)
+//            runOnUiThread { startActivity(intent) } }
         sensorButton.setOnClickListener {
             clearTextView()
             checkSensors()
@@ -70,10 +80,13 @@ class MainActivity : AppCompatActivity() {
 
         }
         soundButton.setOnClickListener {
-
             clearTextView()
             checkSound()
             checkMicrophone()
+        }
+        screenButton.setOnClickListener {
+            clearTextView()
+            checkScreenInfo()
         }
         checkPermissions()
     }
@@ -84,9 +97,10 @@ class MainActivity : AppCompatActivity() {
         val permissions = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.ACCESS_COARSE_LOCATION,
-
+            Manifest.permission.BLUETOOTH,
             Manifest.permission.ACCESS_WIFI_STATE,
-            Manifest.permission.RECORD_AUDIO)
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_EXTERNAL_STORAGE)
         val requestPermission = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, permissions.toString())!=PackageManager.PERMISSION_GRANTED){
             requestPermission.add(permissions.toString())
@@ -117,6 +131,30 @@ class MainActivity : AppCompatActivity() {
         viewBinding.resultTextView.text = ""
     }
 
+    private fun checkScreenInfo(){
+        val rootView: View = window.decorView.rootView
+        val windowInsets: WindowInsetsCompat? = ViewCompat.getRootWindowInsets(rootView)
+        val hasInsets = windowInsets != null
+
+        val visibleDisplayCutout = windowInsets?.displayCutout
+        val isDisplayEmpty = visibleDisplayCutout == null || visibleDisplayCutout.boundingRects.isEmpty()
+
+        val isScreenBroken = !hasInsets || isDisplayEmpty
+
+        val result = if(isScreenBroken)"Screen is Broken" else "Screen is not broken"
+
+        viewBinding.resultTextView.text = result
+        if (!isScreenBroken) {
+            val screenWidth = rootView.width - visibleDisplayCutout!!.safeInsetLeft - visibleDisplayCutout.safeInsetRight
+            val screenHeight = rootView.height - visibleDisplayCutout.safeInsetTop - visibleDisplayCutout.safeInsetBottom
+            val screenResolution = "$screenWidth x $screenHeight"
+            val rootResolution = "${rootView.width} x ${rootView.height}"
+            viewBinding.resultTextView.append("\n Safe Screen Resolution $screenResolution\nRoot Resolution $rootResolution")
+        } else {
+            viewBinding.resultTextView.append("\nNA")
+        }
+
+    }
     private fun checkMemoryAndStorage() {
         val runtime = Runtime.getRuntime()
         val maxMemory = runtime.maxMemory()
@@ -156,13 +194,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkSound(){
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-
-        val isSoundOn = audioManager.ringerMode != AudioManager.RINGER_MODE_SILENT
-
-        val soundStatus = if (isSoundOn) "Phone is Ringing " else "Sound is OFF"
-
-        viewBinding.resultTextView.append("\n$soundStatus")
+//        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+//
+//        val isSoundOn = audioManager.ringerMode != AudioManager.RINGER_MODE_SILENT
+//
+//        val soundStatus = if (isSoundOn) "Phone is Ringing " else "Sound is OFF"
+//
+//        viewBinding.resultTextView.append("\n$soundStatus")
+        val mediaPlayer = MediaPlayer()
+        try{
+            mediaPlayer.setDataSource(this,RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+            mediaPlayer.setOnCompletionListener{
+                Toast.makeText( this,"Sound Playing", Toast.LENGTH_SHORT).show()
+                viewBinding.resultTextView.append("\nSpeakers are working")
+            }
+            mediaPlayer.setOnErrorListener{ _, _, _ ->
+            viewBinding.resultTextView.append("\nSpeakers are not working")
+            true
+            }
+            mediaPlayer.prepare()
+            mediaPlayer.start()
+        }catch (e : IOException){
+            e.printStackTrace()
+            viewBinding.resultTextView.append("\n Failed to play sound")
+        }
     }
     private fun checkMicrophone() {
         val bufferSize = AudioRecord.getMinBufferSize(
@@ -212,6 +267,20 @@ class MainActivity : AppCompatActivity() {
             if (isCameraWorking) {
                 // Camera is working
                 viewBinding.resultTextView.text = "Camera is working"
+
+                //Camera Details
+                val aperture = cameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
+                val isoRange = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+                val shutterSpeed = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
+
+                val apertureValue = aperture?.get(0)?.toFloat()
+                val isoMinValue = isoRange?.lower
+                val isoMaxValue = isoRange?.upper
+                val shutterSpeedMin = shutterSpeed?.lower
+                val shutterSpeedMax = shutterSpeed?.upper
+
+                viewBinding.resultTextView.append("\nAperture: $apertureValue\n Iso Range: $isoMinValue - $isoMaxValue\n Shutter Speed Range: $shutterSpeedMin - $shutterSpeedMax")
+
             } else {
                 // Camera is not working
                 viewBinding.resultTextView.text = "Camera is not working"
